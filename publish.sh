@@ -1,6 +1,6 @@
 #!/bin/bash -eu
 
-# Publish any versions of the docker image not yet pushed to jenkinsci/jenkins
+# Publish any versions of the docker image not yet pushed to jenkins/jenkins
 # Arguments:
 #   -n dry run, do not build or publish images
 #   -d debug
@@ -17,8 +17,8 @@ sort-versions() {
 
 # Try tagging with and without -f to support all versions of docker
 docker-tag() {
-    local from="jenkinsci/jenkins:$1"
-    local to="jenkinsci/jenkins:$2"
+    local from="jenkins/jenkins:$1"
+    local to="$2/jenkins:$3"
     local out
 
     docker pull "$from"
@@ -29,22 +29,9 @@ docker-tag() {
     fi
 }
 
-get-variant() {
-    local branch
-    branch=$(git show-ref | grep $(git rev-list -n 1 HEAD) | tail -1 | rev | cut -d/ -f 1 | rev)
-    if [ -z "$branch" ]; then
-        >&2 echo "Could not get the current branch name for commit, not in a branch?: $(git rev-list -n 1 HEAD)"
-        return 1
-    fi
-    case "$branch" in
-        master) echo "" ;;
-        *) echo "-${branch}" ;;
-    esac
-}
-
 login-token() {
     # could use jq .token
-    curl -q -sSL https://auth.docker.io/token\?service\=registry.docker.io\&scope\=repository:jenkinsci/jenkins:pull | grep -o '"token":"[^"]*"' | cut -d':' -f 2 | xargs echo
+    curl -q -sSL "https://auth.docker.io/token?service=registry.docker.io&scope=repository:jenkins/jenkins:pull" | grep -o '"token":"[^"]*"' | cut -d':' -f 2 | xargs echo
 }
 
 is-published() {
@@ -71,7 +58,7 @@ get-digest() {
 }
 
 get-latest-versions() {
-    curl -q -fsSL https://repo.jenkins-ci.org/releases/org/jenkins-ci/main/jenkins-war/maven-metadata.xml | grep '<version>.*</version>' | egrep -o '[0-9]+(\.[0-9]+)+' | sort-versions | uniq | tail -n 20
+    curl -q -fsSL https://repo.jenkins-ci.org/releases/org/jenkins-ci/main/jenkins-war/maven-metadata.xml | grep '<version>.*</version>' | grep -E -o '[0-9]+(\.[0-9]+)+' | sort-versions | uniq | tail -n 20
 }
 
 publish() {
@@ -79,12 +66,10 @@ publish() {
     local variant=$2
     local tag="${version}${variant}"
     local sha
-    local build_opts="--no-cache --pull"
+    local build_opts=(--no-cache --pull)
 
     if [ "$dry_run" = true ]; then
-        build_opts=""
-    else
-        build_opts="--no-cache --pull"
+        build_opts=()
     fi
 
     local dir=war
@@ -94,12 +79,16 @@ publish() {
     fi
     sha=$(curl -q -fsSL "http://mirrors.jenkins.io/${dir}/${version}/jenkins.war.sha256" | cut -d' ' -f 1)
 
-    docker build --build-arg "JENKINS_VERSION=$version" \
+    docker build --file "Dockerfile$variant" \
+                 --build-arg "JENKINS_VERSION=$version" \
                  --build-arg "JENKINS_SHA=$sha" \
-                 --tag "jenkinsci/jenkins:${tag}" ${build_opts} .
+                 --tag "jenkins/jenkins:${tag}" \
+                 --tag "jenkinsci/jenkins:${tag}" \
+                 "${build_opts[@]}" .
 
     if [ ! "$dry_run" = true ]; then
-        docker push "jenkinsci/jenkins:${tag}"
+        docker push "jenkins/jenkins:${tag}"
+        docker push "jenkinsci/jenkins:${tag}"        
     fi
 }
 
@@ -130,12 +119,14 @@ tag-and-push() {
         echo "Images ${source} [$digest_source] and ${target} [$digest_target] are already the same, not updating tags"
     else
         echo "Creating tag ${target} pointing to ${source}"
-        docker-tag "${source}" "${target}"
+        docker-tag "${source}" "jenkins" "${target}"
+        docker-tag "${source}" "jenkinsci" "${target}"
         if [ ! "$dry_run" = true ]; then
-            echo "Pushing jenkinsci/jenkins:${target}"
+            echo "Pushing jenkins/jenkins:${target}"
+            docker push "jenkins/jenkins:${target}"
             docker push "jenkinsci/jenkins:${target}"
         else
-            echo "Would push jenkinsci/jenkins:${target}"
+            echo "Would push jenkins/jenkins:${target}"
         fi
     fi
 }
@@ -162,6 +153,7 @@ publish-lts() {
 
 dry_run=false
 debug=false
+variant=""
 
 while [[ $# -gt 0 ]]; do
     key="$1"
@@ -171,6 +163,10 @@ while [[ $# -gt 0 ]]; do
         ;;
         -d)
         debug=true
+        ;;
+        -v|--variant)
+        variant="-"$2
+        shift
         ;;
         *)
         echo "Unknown option: $key"
@@ -186,8 +182,6 @@ if [ "$dry_run" = true ]; then
 fi
 
 TOKEN=$(login-token)
-
-variant=$(get-variant)
 
 lts_version=""
 version=""
