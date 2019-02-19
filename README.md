@@ -1,6 +1,10 @@
 # Official Jenkins Docker image
 
-The Jenkins Continuous Integration and Delivery server.
+[![Docker Stars](https://img.shields.io/docker/stars/jenkins/jenkins.svg)](https://hub.docker.com/r/jenkins/jenkins/)
+[![Docker Pulls](https://img.shields.io/docker/pulls/jenkins/jenkins.svg)](https://hub.docker.com/r/jenkins/jenkins/)
+[![Join the chat at https://gitter.im/jenkinsci/docker](https://badges.gitter.im/jenkinsci/docker.svg)](https://gitter.im/jenkinsci/docker?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+The Jenkins Continuous Integration and Delivery server [available on Docker Hub](https://hub.docker.com/r/jenkins/jenkins).
 
 This is a fully functional Jenkins server.
 [https://jenkins.io/](https://jenkins.io/).
@@ -26,6 +30,12 @@ docker run -p 8080:8080 -p 50000:50000 -v jenkins_home:/var/jenkins_home wlsc/je
 this will automatically create a 'jenkins_home' [docker volume](https://docs.docker.com/storage/volumes/) on the host machine, that will survive the container stop/restart/deletion.
 
 NOTE: Avoid using a [bind mount](https://docs.docker.com/storage/bind-mounts/) from a folder on the host machine into `/var/jenkins_home`, as this might result in file permission issues (the user used inside the container might not have rights to the folder on the host machine). If you _really_ need to bind mount jenkins_home, ensure that the directory on the host is accessible by the jenkins user inside the container (jenkins user - uid 1000) or use `-u some_other_user` parameter with `docker run`.
+
+```
+docker run -d -v jenkins_home:/var/jenkins_home -p 8080:8080 -p 50000:50000 jenkins/jenkins:lts
+```
+
+this will run Jenkins in detached mode with port forwarding and volume added. You can access logs with command 'docker logs CONTAINER_ID' in order to check first login token. ID of container will be returned from output of command above. 
 
 ## Backing up data
 
@@ -163,6 +173,10 @@ During the download, the script will use update centers defined by the following
 * `JENKINS_UC_EXPERIMENTAL` - [Experimental Update Center](https://jenkins.io/blog/2013/09/23/experimental-plugins-update-center/).
   This center offers Alpha and Beta versions of plugins.
   Default value: https://updates.jenkins.io/experimental
+* `JENKINS_INCREMENTALS_REPO_MIRROR` -
+  Defines Maven mirror to be used to download plugins from the
+  [Incrementals repo](https://jenkins.io/blog/2018/05/15/incremental-deployment/).
+  Default value: https://repo.jenkins-ci.org/incrementals
 
 It is possible to override the environment variables in images.
 
@@ -179,6 +193,13 @@ There are also custom version specifiers:
   For Jenkins LTS images
   (example: `git:latest`)
 * `experimental` - download the latest version from the experimental update center defined by the `JENKINS_UC_EXPERIMENTAL` environment variable (example: `filesystem_scm:experimental`)
+* `incrementals;org.jenkins-ci.plugins.workflow;2.19-rc289.d09828a05a74[;githubUserId][;branchName]`
+- download the plugin from the [Incrementals repo](https://jenkins.io/blog/2018/05/15/incremental-deployment/).
+  * For this option you need to specify `groupId` of the plugin.
+    Note that this value may change between plugin versions without notice.
+  * In order to automatically update Incrementals in plugins.txt, it is possible to use the Incrementals Maven Plugin:
+    `mvn incrementals:updatePluginsTxt -DpluginsFile=plugins.txt`.
+    [More Info](https://github.com/jenkinsci/incrementals-tools#updating-versions-for-jenkins-docker-images)
 
 ### Script usage
 
@@ -244,18 +265,9 @@ By default, plugins will be upgraded if they haven't been upgraded manually and 
 
 The default behaviour when upgrading from a docker image that didn't write marker files is to leave existing plugins in place. If you want to upgrade existing plugins without marker you may run the docker image with `-e TRY_UPGRADE_IF_NO_MARKER=true`. Then plugins will be upgraded if the version provided by the docker image is newer.
 
-# Building
+## Hacking
 
-Build with the usual
-
-    docker build -t jenkins/jenkins .
-
-Tests are written using [bats](https://github.com/sstephenson/bats) under the `tests` dir
-
-    DOCKERFILE=Dockerfile bats tests
-    DOCKERFILE=Dockerfile-alpine bats tests
-
-Bats can be easily installed with `brew install bats` on OS X
+If you wish to contribute fixes to this repository, please refer to the [dedicated documentation](HACKING.adoc).
 
 # Questions?
 

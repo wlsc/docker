@@ -69,13 +69,24 @@ doDownload() {
     elif [[ "$version" == "experimental" && -n "$JENKINS_UC_EXPERIMENTAL" ]]; then
         # Download from the experimental update center
         url="$JENKINS_UC_EXPERIMENTAL/latest/${plugin}.hpi"
+    elif [[ "$version" == incrementals* ]] ; then
+        # Download from Incrementals repo: https://jenkins.io/blog/2018/05/15/incremental-deployment/
+        # Example URL: https://repo.jenkins-ci.org/incrementals/org/jenkins-ci/plugins/workflow/workflow-support/2.19-rc289.d09828a05a74/workflow-support-2.19-rc289.d09828a05a74.hpi
+        local groupId incrementalsVersion
+        arrIN=("${version//;/ }")
+        groupId=${arrIN[1]}
+        incrementalsVersion=${arrIN[2]}
+        url="${JENKINS_INCREMENTALS_REPO_MIRROR}/$(echo "${groupId}" | tr '.' '/')/${plugin}/${incrementalsVersion}/${plugin}-${incrementalsVersion}.hpi"
     else
         JENKINS_UC_DOWNLOAD=${JENKINS_UC_DOWNLOAD:-"$JENKINS_UC/download"}
         url="$JENKINS_UC_DOWNLOAD/plugins/$plugin/$version/${plugin}.hpi"
     fi
 
     echo "Downloading plugin: $plugin from $url"
-    retry_command curl "${CURL_OPTIONS:--sSfL}" --connect-timeout "${CURL_CONNECTION_TIMEOUT:-20}" --retry "${CURL_RETRY:-5}" --retry-delay "${CURL_RETRY_DELAY:-0}" --retry-max-time "${CURL_RETRY_MAX_TIME:-60}" "$url" -o "$jpi"
+    # We actually want to allow variable value to be split into multiple options passed to curl.
+    # This is needed to allow long options and any options that take value.
+    # shellcheck disable=SC2086
+    retry_command curl ${CURL_OPTIONS:--sSfL} --connect-timeout "${CURL_CONNECTION_TIMEOUT:-20}" --retry "${CURL_RETRY:-3}" --retry-delay "${CURL_RETRY_DELAY:-0}" --retry-max-time "${CURL_RETRY_MAX_TIME:-60}" "$url" -o "$jpi"
     return $?
 }
 
@@ -145,9 +156,7 @@ bundledPlugins() {
         done
         rm -fr $TEMP_PLUGIN_DIR
     else
-        rm -f "$TEMP_ALREADY_INSTALLED"
-        echo "ERROR file not found: $JENKINS_WAR"
-        exit 1
+        echo "war not found, installing all plugins: $JENKINS_WAR"
     fi
 }
 
@@ -172,13 +181,12 @@ jenkinsMajorMinorVersion() {
     JENKINS_WAR=/usr/share/jenkins/jenkins.war
     if [[ -f "$JENKINS_WAR" ]]; then
         local version major minor
-        version="$(java -jar /usr/share/jenkins/jenkins.war --version)"
+        version="$(java -jar $JENKINS_WAR --version)"
         major="$(echo "$version" | cut -d '.' -f 1)"
         minor="$(echo "$version" | cut -d '.' -f 2)"
         echo "$major.$minor"
     else
-        echo "ERROR file not found: $JENKINS_WAR"
-        return 1
+        echo ""
     fi
 }
 
@@ -187,6 +195,7 @@ main() {
     local plugins=()
 
     mkdir -p "$REF_DIR" || exit 1
+    rm -f "$FAILED"
 
     # Read plugins from stdin or from the command line arguments
     if [[ ($# -eq 0) ]]; then
@@ -250,7 +259,10 @@ main() {
     fi
 
     echo "Cleaning up locks"
-    rm -r "$REF_DIR"/*.lock
+    find "$REF_DIR" -regex ".*.lock" | while read -r filepath; do
+        rm -r "$filepath"
+    done
+
 }
 
 main "$@"
